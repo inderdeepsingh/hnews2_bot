@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"html"
 	"os"
 	"os/signal"
 	"strconv"
@@ -57,19 +58,41 @@ func getStories(ctx context.Context, start, end int) (string, []int) {
 		if err != nil {
 			panic("failed to retrieve story")
 		}
-		sb.WriteString(fmt.Sprintf("%d. <b>%s</b> \n%d <i>by %s</i>\n\n", j+1, *story.Title, *story.Score, *story.By))
+		sb.WriteString(fmt.Sprintf("%d. <b>%s</b> \n%d <i>by %s </i> | %d comments\n\n", j+1, *story.Title, *story.Score, *story.By, *story.Descendants))
 		ids = append(ids, *topStoriesIds[j])
 	}
 	res := sb.String()
 	return res, ids
 }
 
-func getTopComments(ctx context.Context, storyId int) string {
+func getTopComments(ctx context.Context, storyId int) []string {
 	hn, _ := gohn.NewClient(nil)
 	story, err := hn.Items.Get(ctx, storyId)
 	if err != nil {
 		panic("failed to retrieve story")
 	}
+
+	limit := 5
+	var sb strings.Builder
+	var res []string
+	if *story.Kids != nil && len(*story.Kids) < limit {
+		limit = len(*story.Kids)
+	}
+	for i := 0; i < limit; i++ {
+		sb.Reset()
+		comment, err := hn.Items.Get(ctx, (*story.Kids)[i])
+		if err != nil {
+			panic("failed to fetch comment")
+		}
+		finalString := strings.ReplaceAll(*comment.Text, "<p>", "\n\n")
+		finalString = html.UnescapeString(finalString)
+		// finalString = strings.ReplaceAll(finalString, "<", "&lt;")
+		// finalString = strings.ReplaceAll(finalString, ">", "&gt;")
+		// finalString = strings.ReplaceAll(finalString, "&", "&amp;")
+		sb.WriteString(fmt.Sprintf("<b>%s</b>\n %s\n\n", *comment.By, finalString))
+		res = append(res, sb.String())
+	}
+	return res
 }
 
 func buildInlineKeyboard(stories []int, start, currPage int) *models.InlineKeyboardMarkup {
@@ -127,17 +150,25 @@ func PageHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 func StoryHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	ackQuery(ctx, b, update)
-	rawDate := update.CallbackQuery.Data
-	x := strings.Split(rawDate, ":")
+	rawData := update.CallbackQuery.Data
+	x := strings.Split(rawData, ":")
 	storyId, _ := strconv.Atoi(x[1])
+	// kb := buildInlineKeyboard([]int{1, 2, 3, 4, 5}, 10, 2)
 	res := getTopComments(ctx, storyId)
 	fmt.Println("sending comments", res)
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-		Text:      res,
-		ParseMode: models.ParseModeHTML,
-		//ReplyMarkup: kb,
-	})
+	for _, msg := range res {
+		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			Text:      msg,
+			ParseMode: models.ParseModeHTML,
+		})
+
+		if err != nil {
+			fmt.Printf("failed to send response: %v\n", err)
+		}
+
+	}
+
 }
 
 func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
