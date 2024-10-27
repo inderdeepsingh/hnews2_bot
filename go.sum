@@ -1,0 +1,4 @@
+github.com/alexferrari88/gohn v0.8.0 h1:yrnVkLuAzHL7AH9DCKsGzQuIfY5gRqQWjb9cCx3WnGQ=
+github.com/alexferrari88/gohn v0.8.0/go.mod h1:4IsYbI2WYorM9qId+JIpRuevhY4ZFgFSwG+eIoXO+Gc=
+github.com/go-telegram/bot v1.8.4 h1:7viEUESakK29aiCumq6ui5jTPqJLLDeFubTsQzE07Kg=
+github.com/go-telegram/bot v1.8.4/go.mod h1:i2TRs7fXWIeaceF3z7KzsMt/he0TwkVC680mvdTFYeM=
