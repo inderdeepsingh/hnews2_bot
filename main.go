@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -42,8 +43,16 @@ func main() {
 	}
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypeExact, TopStoriesHandler)
+	go func() {
+		http.HandleFunc("/", func (w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "Hello World")
+		})
+		http.ListenAndServe(":8080", nil)
+	}()
+	
 	b.Start(ctx)
 }
+
 
 func getStories(ctx context.Context, start, end int) (string, []int) {
 	var sb strings.Builder
