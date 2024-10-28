@@ -32,7 +32,7 @@ func main() {
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(DefaultHandler),
-		bot.WithWebhookSecretToken(token),
+		// bot.WithWebhookSecretToken(token),
 		bot.WithCallbackQueryDataHandler("page:", bot.MatchTypePrefix, PageHandler),
 		bot.WithCallbackQueryDataHandler("story:", bot.MatchTypePrefix, StoryHandler),
 	}
