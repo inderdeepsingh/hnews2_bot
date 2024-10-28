@@ -25,15 +25,16 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	opts := []bot.Option{
-		bot.WithDefaultHandler(DefaultHandler),
-		bot.WithCallbackQueryDataHandler("page:", bot.MatchTypePrefix, PageHandler),
-		bot.WithCallbackQueryDataHandler("story:", bot.MatchTypePrefix, StoryHandler),
-	}
-
 	token := os.Getenv("BOT_TOKEN")
 	if token == "" {
 		panic("token not provided")
+	}
+
+	opts := []bot.Option{
+		bot.WithDefaultHandler(DefaultHandler),
+		bot.WithWebhookSecretToken(token),
+		bot.WithCallbackQueryDataHandler("page:", bot.MatchTypePrefix, PageHandler),
+		bot.WithCallbackQueryDataHandler("story:", bot.MatchTypePrefix, StoryHandler),
 	}
 
 	b, err := bot.New(token, opts...)
@@ -43,16 +44,24 @@ func main() {
 	}
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/top", bot.MatchTypeExact, TopStoriesHandler)
-	go func() {
-		http.HandleFunc("/", func (w http.ResponseWriter, r *http.Request) {
-			fmt.Fprintf(w, "Hello World")
-		})
-		http.ListenAndServe(":10000", nil)
-	}()
-	
-	b.Start(ctx)
-}
 
+	if os.Getenv("RENDER") == "true" {
+		url := os.Getenv("RENDER_EXTERNAL_URL")
+		_, err := b.SetWebhook(ctx, &bot.SetWebhookParams{
+			URL: url,
+		})
+		if err != nil {
+			panic("failed to set webhook url")
+		}
+		defer b.DeleteWebhook(ctx, &bot.DeleteWebhookParams{
+			DropPendingUpdates: true,
+		})
+		go b.StartWebhook(ctx)
+		http.ListenAndServe(":10000", b.WebhookHandler())
+	} else {
+		b.Start(ctx)
+	}
+}
 
 func getStories(ctx context.Context, start, end int) (string, []int) {
 	var sb strings.Builder
