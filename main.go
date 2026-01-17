@@ -35,6 +35,7 @@ func main() {
 		// bot.WithWebhookSecretToken(token),
 		bot.WithCallbackQueryDataHandler("page:", bot.MatchTypePrefix, PageHandler),
 		bot.WithCallbackQueryDataHandler("story:", bot.MatchTypePrefix, StoryHandler),
+		bot.WithCallbackQueryDataHandler("comments:", bot.MatchTypePrefix, CommentsHandler),
 	}
 
 	b, err := bot.New(token, opts...)
@@ -83,20 +84,26 @@ func getStories(ctx context.Context, start, end int) (string, []int) {
 	return res, ids
 }
 
-func getTopComments(ctx context.Context, storyId int) []string {
+func getTopComments(ctx context.Context, storyId int, start int) ([]string, bool, bool) {
 	hn, _ := gohn.NewClient(nil)
 	story, err := hn.Items.Get(ctx, storyId)
 	if err != nil {
 		panic("failed to retrieve story")
 	}
 
-	limit := 5
+	totalComments := 0
+	if story.Kids != nil {
+		totalComments = len(*story.Kids)
+	}
+
+	end := start + 5
+	if end > totalComments {
+		end = totalComments
+	}
+
 	var sb strings.Builder
 	var res []string
-	if *story.Kids != nil && len(*story.Kids) < limit {
-		limit = len(*story.Kids)
-	}
-	for i := 0; i < limit; i++ {
+	for i := start; i < end; i++ {
 		sb.Reset()
 		comment, err := hn.Items.Get(ctx, (*story.Kids)[i])
 		if err != nil {
@@ -104,13 +111,32 @@ func getTopComments(ctx context.Context, storyId int) []string {
 		}
 		finalString := strings.ReplaceAll(*comment.Text, "<p>", "\n\n")
 		finalString = html.UnescapeString(finalString)
-		// finalString = strings.ReplaceAll(finalString, "<", "&lt;")
-		// finalString = strings.ReplaceAll(finalString, ">", "&gt;")
-		// finalString = strings.ReplaceAll(finalString, "&", "&amp;")
 		sb.WriteString(fmt.Sprintf("<b>%s</b>\n %s\n\n", *comment.By, finalString))
 		res = append(res, sb.String())
 	}
-	return res
+
+	hasPrev := start > 0
+	hasNext := end < totalComments
+	return res, hasPrev, hasNext
+}
+
+func buildCommentKeyboard(storyId int, start int, hasPrev, hasNext bool) *models.InlineKeyboardMarkup {
+	var buttons []models.InlineKeyboardButton
+	if hasPrev {
+		buttons = append(buttons, models.InlineKeyboardButton{
+			Text:         "prev",
+			CallbackData: fmt.Sprintf("comments:%d:%d", storyId, start-5),
+		})
+	}
+	if hasNext {
+		buttons = append(buttons, models.InlineKeyboardButton{
+			Text:         "next",
+			CallbackData: fmt.Sprintf("comments:%d:%d", storyId, start+5),
+		})
+	}
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{buttons},
+	}
 }
 
 func buildInlineKeyboard(stories []int, start, currPage int) *models.InlineKeyboardMarkup {
@@ -171,22 +197,48 @@ func StoryHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	rawData := update.CallbackQuery.Data
 	x := strings.Split(rawData, ":")
 	storyId, _ := strconv.Atoi(x[1])
-	// kb := buildInlineKeyboard([]int{1, 2, 3, 4, 5}, 10, 2)
-	res := getTopComments(ctx, storyId)
+	res, hasPrev, hasNext := getTopComments(ctx, storyId, 0)
 	fmt.Println("sending comments", res)
-	for _, msg := range res {
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+	for i, msg := range res {
+		params := &bot.SendMessageParams{
 			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
 			Text:      msg,
 			ParseMode: models.ParseModeHTML,
-		})
-
+		}
+		// Add keyboard to last comment
+		if i == len(res)-1 && (hasPrev || hasNext) {
+			params.ReplyMarkup = buildCommentKeyboard(storyId, 0, hasPrev, hasNext)
+		}
+		_, err := b.SendMessage(ctx, params)
 		if err != nil {
 			fmt.Printf("failed to send response: %v\n", err)
 		}
-
 	}
+}
 
+func CommentsHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	ackQuery(ctx, b, update)
+	rawData := update.CallbackQuery.Data
+	x := strings.Split(rawData, ":")
+	storyId, _ := strconv.Atoi(x[1])
+	start, _ := strconv.Atoi(x[2])
+	res, hasPrev, hasNext := getTopComments(ctx, storyId, start)
+	fmt.Println("sending comments", res)
+	for i, msg := range res {
+		params := &bot.SendMessageParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			Text:      msg,
+			ParseMode: models.ParseModeHTML,
+		}
+		// Add keyboard to last comment
+		if i == len(res)-1 && (hasPrev || hasNext) {
+			params.ReplyMarkup = buildCommentKeyboard(storyId, start, hasPrev, hasNext)
+		}
+		_, err := b.SendMessage(ctx, params)
+		if err != nil {
+			fmt.Printf("failed to send response: %v\n", err)
+		}
+	}
 }
 
 func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
